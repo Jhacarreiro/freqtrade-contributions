@@ -137,6 +137,43 @@ def test_remote_pairlist_init_no_pairlist_url(mocker, rpl_config):
         get_patched_freqtradebot(mocker, rpl_config)
 
 
+@pytest.mark.parametrize("status", [401, 429, 500])
+@pytest.mark.parametrize("keep_last", [False, True])
+def test_fetch_pairlist_http_failure(mocker, rpl_config, status, keep_last):
+    response = requests.Response()
+    response.status_code = status
+    response.headers["content-type"] = "application/json"
+    response._content = b'{"error": "Service unavailable"}'
+    mocker.patch("freqtrade.plugins.pairlist.RemotePairList.requests.get", return_value=response)
+    remote_pairlist = RemotePairList(
+        MagicMock(),
+        MagicMock(),
+        rpl_config,
+        {"pairlist_url": "https://example.com/pairs", "keep_pairlist_on_failure": keep_last},
+        0,
+    )
+    remote_pairlist._init_done = True
+    remote_pairlist._last_pairlist = ["BTC/USDT", "ETH/USDT"]
+
+    pairs, _ = remote_pairlist.fetch_pairlist()
+
+    assert pairs == (remote_pairlist._last_pairlist if keep_last else [])
+
+
+def test_fetch_pairlist_http_failure_initialization(mocker, rpl_config):
+    response = requests.Response()
+    response.status_code = 500
+    response.headers["content-type"] = "application/json"
+    response._content = b'{"error": "Service unavailable"}'
+    mocker.patch("freqtrade.plugins.pairlist.RemotePairList.requests.get", return_value=response)
+    remote_pairlist = RemotePairList(
+        MagicMock(), MagicMock(), rpl_config, {"pairlist_url": "https://example.com/pairs"}, 0
+    )
+
+    with pytest.raises(OperationalException, match="Was not able to fetch pairlist"):
+        remote_pairlist.fetch_pairlist()
+
+
 def test_fetch_pairlist_mock_response_valid(mocker, rpl_config):
     rpl_config["pairlists"] = [
         {

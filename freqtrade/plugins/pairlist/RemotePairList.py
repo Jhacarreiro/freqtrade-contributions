@@ -167,6 +167,7 @@ class RemotePairList(IPairList):
 
         try:
             response = requests.get(self._pairlist_url, headers=headers, timeout=self._read_timeout)
+            response.raise_for_status()
             content_type = response.headers.get("content-type")
             time_elapsed = response.elapsed.total_seconds()
 
