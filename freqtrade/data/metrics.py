@@ -423,7 +423,7 @@ def calculate_sortino(
 
     expected_returns_mean = total_profit.sum() / days_period
 
-    down_stdev = np.std(trades.loc[trades["profit_abs"] < 0, "profit_abs"] / starting_balance)
+    down_stdev = np.sqrt((total_profit.clip(upper=0) ** 2).mean())
 
     return _calculate_annualized_ratio(expected_returns_mean, down_stdev)
 
@@ -447,8 +447,7 @@ def calculate_sortino_from_balance(
         return 0.0
 
     expected_returns_mean = daily_returns.mean()
-    downside_returns = daily_returns[daily_returns < 0]
-    down_stdev = downside_returns.std(ddof=0)
+    down_stdev = np.sqrt((daily_returns.clip(upper=0) ** 2).mean())
     return _calculate_annualized_ratio(expected_returns_mean, down_stdev)
 
 

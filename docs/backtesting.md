@@ -437,7 +437,7 @@ It contains key metrics about the performance of your strategy on backtesting da
 - `Total profit %`: Total profit. Aligned to the `TOTAL` row's `Tot Profit %` from the first table. Calculated as `(End capital − Starting capital) / Starting capital`.
 - `CAGR %`: Compound annual growth rate.
 - `Sharpe (closed trades)`: Annualized Sharpe ratio including only closed trades (ignoring open trades with profits or losses).
-- `Sortino (closed trades)`: Annualized Sortino ratio including only closed trades (ignoring open trades with profits or losses).
+- `Sortino (closed trades)`: Annualized Sortino ratio including only closed trades (ignoring open trades with profits or losses). Downside deviation is the root mean square of returns below a minimum acceptable return of zero, with all trade returns included in the denominator.
 - `Calmar (closed trades)`: Annualized Calmar ratio including only closed trades (ignoring open trades with profits or losses).
 - `SQN`: System Quality Number (SQN) - by Van Tharp.
 - `Mean profit p-value`: Two-sided p-value of a one-sample Student's t-test against the null hypothesis that the mean per-trade return is zero - in short, "is the average profit distinguishable from noise?". A small value (the usual bar is below `0.05`) means the observed edge is unlikely to be down to chance. Its underlying t-statistic is identical to `SQN`. See the note below for how to read it in practice.
@@ -469,7 +469,7 @@ It contains key metrics about the performance of your strategy on backtesting da
 - `Min/Max balance (wallet balance)`: Lowest and Highest Wallet balance during the backtest period - including capital tied in open trades.
 - `Min/Max balance dates (wallet balance)`: Dates when the minimum and maximum unrealized balance occurred.
 - `Sharpe (wallet balance)` Annualized Sharpe ratio calculation including unrealized profits.
-- `Sortino (wallet balance)` Annualized Sortino ratio calculation including unrealized profits.
+- `Sortino (wallet balance)` Annualized Sortino ratio calculation including unrealized profits. Downside deviation is calculated over all daily returns, treating returns above zero as zero.
 - `Calmar (wallet balance)` Annualized Calmar ratio calculation including unrealized profits.
 
 ??? Note "Reading the mean profit p-value"

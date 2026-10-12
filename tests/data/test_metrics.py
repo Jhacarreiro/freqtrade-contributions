@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
-from pandas import DataFrame, DateOffset, Timestamp, to_datetime
+from pandas import DataFrame, DateOffset, Timestamp, date_range, to_datetime
 
 from freqtrade.configuration import TimeRange
 from freqtrade.data.btanalysis import (
@@ -254,7 +254,7 @@ def test_calculate_sortino(testdatadir):
         0.01,
     )
     assert isinstance(sortino, float)
-    assert pytest.approx(sortino) == 35.17722
+    assert pytest.approx(sortino) == 53.9082454
 
 
 def test_calculate_sortino_from_balance():
@@ -276,13 +276,15 @@ def test_calculate_sortino_from_balance():
 
     sortino = calculate_sortino_from_balance(balance_history)
     expected_returns = np.array([0.1, -0.05, 0.2, -0.1])
-    expected_sortino = expected_returns.mean() / np.std(expected_returns[expected_returns < 0])
+    expected_sortino = expected_returns.mean() / np.sqrt(
+        (np.minimum(expected_returns, 0) ** 2).mean()
+    )
     expected_sortino *= np.sqrt(365)
 
     assert isinstance(sortino, float)
     assert pytest.approx(sortino) == expected_sortino
     # Explicit assert
-    assert pytest.approx(sortino) == 28.6574597
+    assert pytest.approx(sortino) == 12.8160056179763
 
 
 def test_calculate_sortino_from_balance_empty_or_no_downside():
@@ -302,6 +304,28 @@ def test_calculate_sortino_from_balance_empty_or_no_downside():
         }
     )
     assert calculate_sortino_from_balance(positive_balance_history) == -100
+
+
+@pytest.mark.parametrize("returns", [[0.1, -0.1, 0.2], [0.1, -0.1, -0.1, 0.2], [-0.1, -0.1]])
+@pytest.mark.parametrize("metric", ["trades", "balance"])
+def test_calculate_sortino_downside_deviation(returns, metric):
+    start = Timestamp("2025-01-01", tz="UTC")
+    end = start + timedelta(days=len(returns))
+    trades = DataFrame({"profit_abs": np.array(returns) * 100})
+    balance_history = DataFrame(
+        {
+            "date": date_range(start, periods=len(returns) + 1, freq="1D"),
+            "total_quote": 100 * np.cumprod([1, *(1 + np.array(returns))]),
+        }
+    )
+    # All observations count in downside deviation, with zero for returns above MAR=0.
+    downside_deviation = np.sqrt(sum(min(value, 0) ** 2 for value in returns) / len(returns))
+    expected = np.mean(returns) / downside_deviation * np.sqrt(365)
+    if metric == "trades":
+        actual = calculate_sortino(trades, start, end, 100)
+    else:
+        actual = calculate_sortino_from_balance(balance_history)
+    assert actual == pytest.approx(expected)
 
 
 def test_calculate_sharpe(testdatadir):

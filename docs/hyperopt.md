@@ -481,8 +481,8 @@ Currently, the following loss functions are builtin:
 * `OnlyProfitHyperOptLoss` - takes only amount of profit into consideration.
 * `SharpeHyperOptLoss` - Optimizes Sharpe Ratio calculated on trade returns relative to standard deviation.
 * `SharpeHyperOptLossDaily` - Optimizes Sharpe Ratio calculated on **daily** trade returns relative to standard deviation.
-* `SortinoHyperOptLoss` - Optimizes Sortino Ratio calculated on trade returns relative to **downside** standard deviation.
-* `SortinoHyperOptLossDaily` - optimizes Sortino Ratio calculated on **daily** trade returns relative to **downside** standard deviation.
+* `SortinoHyperOptLoss` - Optimizes Sortino Ratio calculated on trade returns relative to **downside deviation**.
+* `SortinoHyperOptLossDaily` - optimizes Sortino Ratio calculated on **daily** trade returns relative to **downside deviation**.
 * `MaxDrawDownHyperOptLoss` - Optimizes Maximum absolute drawdown.
 * `MaxDrawDownRelativeHyperOptLoss` -  Optimizes both maximum absolute drawdown while also adjusting for maximum relative drawdown.
 * `MaxDrawDownPerPairHyperOptLoss` - Calculates the profit/drawdown ratio per pair and returns the worst result as objective, forcing hyperopt to optimize the parameters for all pairs in the pairlist. This way, we prevent one or more pairs with good results from inflating the metrics, while the pairs with poor results are not represented and therefore not optimized.
