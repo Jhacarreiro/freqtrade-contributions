@@ -79,32 +79,16 @@ def _merge_prepared_informative_pair(
 
     # Combine the 2 dataframes
     # all indicators on the informative sample MUST be calculated before this point
-    if ffill:
-        # https://pandas.pydata.org/docs/user_guide/merging.html#timeseries-friendly-merging
-        # merge_ordered - ffill method is 2.5x faster than separate ffill()
-        dataframe = pd.merge_ordered(
-            dataframe,
-            informative,
-            fill_method="ffill",
+    if ffill and not informative.empty:
+        # The shifted key is the first base candle open whose close can use this candle.
+        # A backward asof merge also handles keys between base candles without looking ahead.
+        dataframe = pd.merge_asof(
+            dataframe.sort_values("date"),
+            informative.sort_values(date_merge),
             left_on="date",
             right_on=date_merge,
-            how="left",
+            direction="backward",
         )
-
-        if len(dataframe) > 1 and len(informative) > 0 and pd.isnull(dataframe.at[0, date_merge]):
-            # If the start dates of the dataframes are not aligned, the first rows will be NaN
-            # We can fill these with the last available informative candle before the start date
-            # while still avoiding lookahead bias - as only past data is used.
-            first_valid_idx = dataframe[date_merge].first_valid_index()
-            if first_valid_idx:
-                first_valid_date_merge = dataframe.at[first_valid_idx, date_merge]
-                matching_informative_raws = informative[
-                    informative[date_merge] < first_valid_date_merge
-                ]
-                if not matching_informative_raws.empty:
-                    dataframe.loc[: first_valid_idx - 1] = dataframe.loc[
-                        : first_valid_idx - 1
-                    ].fillna(matching_informative_raws.iloc[-1])
     else:
         dataframe = pd.merge(
             dataframe, informative, left_on="date", right_on=date_merge, how="left"

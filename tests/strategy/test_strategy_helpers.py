@@ -99,6 +99,63 @@ def test_merge_informative_pair_weekly():
     assert candle4.iloc[0]["date_1w"] == pd.Timestamp("2022-12-19T00:00:00.000Z")
 
 
+@pytest.mark.parametrize(
+    "append_timeframe,suffix,date_column", [(True, None, "date"), (False, "other", "timestamp")]
+)
+@pytest.mark.parametrize("base_minutes", [[0, 3, 6, 9, 12, 15], [3, 6, 9, 15]])
+def test_merge_informative_pair_non_divisible(append_timeframe, suffix, date_column, base_minutes):
+    start = pd.Timestamp("2025-01-01", tz="UTC")
+    data = pd.DataFrame(
+        {"date": start + pd.to_timedelta(base_minutes, "m"), "close": range(len(base_minutes))},
+        index=range(10, 10 + len(base_minutes)),
+    )
+    informative = pd.DataFrame(
+        {
+            date_column: pd.date_range(start, periods=4, freq="5min"),
+            "value": [100.0, np.nan, 102.0, 103.0],
+        }
+    )
+    original = informative.copy(deep=True)
+
+    result = merge_informative_pair(
+        data,
+        informative,
+        "3m",
+        "5m",
+        append_timeframe=append_timeframe,
+        suffix=suffix,
+        date_column=date_column,
+    )
+    inf_suffix = "5m" if append_timeframe else suffix
+    merged_date = f"{date_column}_{inf_suffix}"
+    merged_value = f"value_{inf_suffix}"
+    assert result.index.equals(pd.RangeIndex(len(data)))
+    assert result["date"].tolist() == data["date"].tolist()
+    assert result["close"].tolist() == data["close"].tolist()
+    pd.testing.assert_frame_equal(informative, original)
+    for row in result.itertuples(index=False):
+        base_close = row.date + pd.Timedelta(minutes=3)
+        past = informative[informative[date_column] + pd.Timedelta(minutes=5) <= base_close]
+        if past.empty:
+            assert pd.isna(getattr(row, merged_date))
+            assert pd.isna(getattr(row, merged_value))
+        else:
+            assert getattr(row, merged_date) == past.iloc[-1][date_column]
+            expected_value = past.iloc[-1]["value"]
+            if pd.isna(expected_value):
+                assert pd.isna(getattr(row, merged_value))
+            else:
+                assert getattr(row, merged_value) == expected_value
+
+
+def test_merge_informative_pair_non_divisible_no_ffill():
+    data = generate_test_data("3m", 6, "2025-01-01")
+    informative = generate_test_data("5m", 4, "2025-01-01")
+    result = merge_informative_pair(data, informative, "3m", "5m", ffill=False)
+    assert result["date_5m"].notna().tolist() == [False, False, False, False, True, False]
+    assert result.iloc[4]["date_5m"] == informative.iloc[2]["date"]
+
+
 def test_merge_informative_pair_monthly():
     # Covers roughly 2 months - until 2023-01-10
     data = generate_test_data("1h", 1040, "2022-11-28")
@@ -145,8 +202,8 @@ def test_merge_informative_pair_no_overlap():
     assert "date" in result.columns
     assert result["date"].equals(data["date"])
     assert "date_1h" in result.columns
-    # If there's no overlap, forward filling should not fill anything
-    assert result["date_1h"].isnull().all()
+    # The last informative candle is already closed, even without an exact timestamp match.
+    assert (result["date_1h"] == informative.iloc[-1]["date"]).all()
 
 
 def test_merge_informative_pair_same():
