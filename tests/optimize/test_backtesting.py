@@ -681,6 +681,83 @@ def test_backtest__enter_trade_futures(default_conf_usdt, fee, mocker) -> None:
     assert trade is None
 
 
+@pytest.mark.parametrize("leverage,adjustment", [(1, 11), (10, 5)])
+@pytest.mark.parametrize("is_short", [False, True])
+def test_backtest_adjust_trade_entry_limits(
+    default_conf_usdt, mocker, markets, leverage, adjustment, is_short
+):
+    pair = "ETH/USDT:USDT"
+    markets[pair]["contractSize"] = 1
+    markets[pair]["precision"]["amount"] = 8
+    markets[pair]["limits"]["cost"] = {"min": 10, "max": 1000}
+    markets[pair]["limits"]["amount"] = {"min": None, "max": None}
+    default_conf_usdt.update(
+        {
+            "trading_mode": "futures",
+            "margin_mode": "isolated",
+            "position_adjustment_enable": True,
+            "stake_amount": 20,
+        }
+    )
+    default_conf_usdt["exchange"]["pair_whitelist"] = [pair]
+    patch_exchange(mocker, mock_markets=markets)
+    mocker.patch(f"{EXMS}.get_max_leverage", return_value=10)
+    mocker.patch(f"{EXMS}._get_max_notional_from_tiers", return_value=None)
+    mocker.patch("freqtrade.optimize.backtesting.Backtesting._run_funding_fees")
+    mocker.patch("freqtrade.optimize.backtesting.update_liquidation_prices")
+    backtesting = Backtesting(default_conf_usdt)
+    backtesting._set_strategy(backtesting.strategylist[0])
+    backtesting.strategy.leverage = lambda **kwargs: leverage
+    row = (pd.Timestamp("2025-01-01", tz="UTC"), 100, 101, 99, 100, 0, 0, 0, 0, "", "", "")
+    trade = backtesting._enter_trade(pair, row, "short" if is_short else "long")
+    assert trade is not None
+    assert trade.nr_of_successful_entries == 1
+    mocker.patch.object(backtesting.wallets, "get_available_stake_amount", return_value=500)
+
+    def adjust_trade_position(**kwargs):
+        return adjustment if kwargs["min_stake"] <= adjustment <= kwargs["max_stake"] else None
+
+    callback = mocker.patch.object(
+        backtesting.strategy, "adjust_trade_position", side_effect=adjust_trade_position
+    )
+    result = backtesting._check_adjust_trade_for_candle(trade, row, row[DATE_IDX])
+    assert result is trade
+    assert callback.call_args.kwargs["min_stake"] == pytest.approx(10.5 / leverage)
+    assert callback.call_args.kwargs["max_stake"] == min(1000 / leverage, 500)
+    assert trade.nr_of_successful_entries == 2
+    assert trade.stake_amount == pytest.approx(20 + adjustment)
+
+
+@pytest.mark.parametrize("adjustment,can_exit", [(-19, False), (-18, True)])
+def test_backtest_adjust_trade_partial_exit_notional_limit(
+    default_conf_usdt, mocker, markets, adjustment, can_exit
+):
+    pair = "ETH/USDT:USDT"
+    markets[pair]["limits"]["cost"] = {"min": 10, "max": 1000}
+    markets[pair]["limits"]["amount"] = {"min": None, "max": None}
+    patch_exchange(mocker, mock_markets=markets)
+    backtesting = Backtesting(default_conf_usdt)
+    backtesting._set_strategy(backtesting.strategylist[0])
+    trade = LocalTrade(
+        pair=pair,
+        open_rate=100,
+        stake_amount=20,
+        amount=2,
+        leverage=10,
+        amount_precision=8,
+        contract_size=1,
+    )
+    row = (pd.Timestamp("2025-01-01", tz="UTC"), 100)
+    mocker.patch.object(backtesting.strategy, "adjust_trade_position", return_value=adjustment)
+    exit_mock = mocker.patch.object(backtesting, "_get_exit_for_signal", return_value=None)
+
+    assert backtesting._check_adjust_trade_for_candle(trade, row, row[DATE_IDX]) is trade
+    # Remaining notional is 10 or 20; the entry margin minimum (1.05) must not be reused.
+    assert exit_mock.call_count == int(can_exit)
+    if can_exit:
+        assert exit_mock.call_args.args[-1] == pytest.approx(1.8)
+
+
 def test_backtest__check_trade_exit(default_conf, mocker) -> None:
     default_conf["use_exit_signal"] = False
     patch_exchange(mocker)

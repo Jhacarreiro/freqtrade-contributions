@@ -720,8 +720,12 @@ class Backtesting:
     ) -> LocalTrade:
         current_rate: float = row[OPEN_IDX]
         current_profit = trade.calc_profit_ratio(current_rate)
-        min_stake = self.exchange.get_min_pair_stake_amount(trade.pair, current_rate, -0.1)
-        max_stake = self.exchange.get_max_pair_stake_amount(trade.pair, current_rate)
+        min_stake = self.exchange.get_min_pair_stake_amount(
+            trade.pair, current_rate, 0.0, trade.leverage
+        )
+        max_stake = self.exchange.get_max_pair_stake_amount(
+            trade.pair, current_rate, trade.leverage
+        )
         stake_available = self.wallets.get_available_stake_amount()
         stake_amount, order_tag = self.strategy._adjust_trade_position_internal(
             trade=trade,  # type: ignore[arg-type]
@@ -771,7 +775,8 @@ class Backtesting:
             if amount == 0.0:
                 return trade
             remaining = (trade.amount - amount) * current_rate
-            if min_stake and remaining != 0 and remaining < min_stake:
+            min_exit_stake = self.exchange.get_min_pair_stake_amount(trade.pair, current_rate, -0.1)
+            if min_exit_stake and remaining != 0 and remaining < min_exit_stake:
                 # Remaining stake is too low to be sold.
                 return trade
             exit_ = ExitCheckTuple(ExitType.PARTIAL_EXIT, order_tag)
