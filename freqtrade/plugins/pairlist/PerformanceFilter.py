@@ -62,7 +62,7 @@ class PerformanceFilter(IPairList):
         """
         # Get the trading performance for pairs from database
         try:
-            start_date = dt_now() - timedelta(minutes=self._minutes)
+            start_date = dt_now() - timedelta(minutes=self._minutes) if self._minutes else None
             performance = pd.DataFrame(Trade.get_overall_performance(start_date))
         except AttributeError:
             # Performancefilter does not work in backtesting.

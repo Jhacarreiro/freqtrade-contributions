@@ -14,8 +14,9 @@ from freqtrade.constants import AVAILABLE_PAIRLISTS
 from freqtrade.data.dataprovider import DataProvider
 from freqtrade.enums import CandleType, RunMode
 from freqtrade.exceptions import OperationalException
-from freqtrade.persistence import LocalTrade, Trade
+from freqtrade.persistence import LocalTrade, Order, Trade
 from freqtrade.plugins.pairlist.pairlist_helpers import dynamic_expand_pairlist, expand_pairlist
+from freqtrade.plugins.pairlist.PerformanceFilter import PerformanceFilter
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.resolvers import PairListResolver
 from freqtrade.util import dt_now, dt_utc
@@ -1364,6 +1365,52 @@ def test_ShuffleFilter_init(mocker, whitelist_conf, caplog) -> None:
         plm.refresh_pairlist()
         assert shuffle_mock.call_count == 1
         assert set(plm.whitelist) == set(pl1)
+
+
+@pytest.mark.usefixtures("init_persistence")
+@pytest.mark.parametrize("minutes", [None, 0])
+def test_performance_filter_all_time(default_conf_usdt, minutes):
+    now = dt_now()
+    for pair, profit in [("BAD/USDT", -10), ("GOOD/USDT", 20)]:
+        trade = Trade(
+            pair=pair,
+            exchange="binance",
+            is_open=False,
+            amount=1,
+            stake_amount=100,
+            open_rate=100,
+            close_rate=100 + profit,
+            fee_open=0,
+            fee_close=0,
+            open_date=now - timedelta(hours=2),
+            close_date=now - timedelta(hours=1),
+            close_profit=profit / 100,
+            close_profit_abs=profit,
+            leverage=1,
+        )
+        trade.orders = [
+            Order(
+                ft_pair=pair,
+                ft_order_side="buy",
+                ft_is_open=False,
+                ft_amount=1,
+                ft_price=100,
+                order_id=pair,
+                status="closed",
+                price=100,
+                average=100,
+                amount=1,
+                filled=1,
+            )
+        ]
+        Trade.session.add(trade)
+    Trade.commit()
+    pairlistconfig = {"min_profit": 0}
+    if minutes is not None:
+        pairlistconfig["minutes"] = minutes
+    pair_filter = PerformanceFilter(MagicMock(), MagicMock(), default_conf_usdt, pairlistconfig, 1)
+
+    assert pair_filter.filter_pairlist(["BAD/USDT", "GOOD/USDT"], {}) == ["GOOD/USDT"]
 
 
 @pytest.mark.usefixtures("init_persistence")
