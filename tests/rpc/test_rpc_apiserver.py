@@ -35,6 +35,7 @@ from freqtrade.exceptions import (
 from freqtrade.loggers import setup_logging, setup_logging_pre
 from freqtrade.optimize.backtesting import Backtesting
 from freqtrade.persistence import CustomDataWrapper, Trade
+from freqtrade.resolvers import StrategyResolver
 from freqtrade.rpc import RPC
 from freqtrade.rpc.api_server import ApiServer
 from freqtrade.rpc.api_server.api_auth import create_token, get_user_from_token
@@ -3416,6 +3417,61 @@ def test_api_backtesting(botclient, mocker, fee, caplog, tmp_path):
         rc = client_post(client, f"{BASE_URI}/backtest", data=data)
         assert_response(rc, 422)
     finally:
+        Backtesting.cleanup()
+
+
+@pytest.mark.parametrize("startup_counts", [(20, 200, 200), (200, 20, 20)])
+def test_api_backtest_startup_cache(botclient, mocker, fee, startup_counts):
+    ftbot, client = botclient
+    ftbot.config["runmode"] = RunMode.WEBSERVER
+    ftbot.config["export"] = "none"
+    mocker.patch(f"{EXMS}.get_fee", fee)
+    load_strategy = StrategyResolver.load_strategy
+    startup_count = startup_counts[0]
+
+    def load_strategy_with_startup(config):
+        strategy = load_strategy(config)
+        strategy.startup_candle_count = startup_count
+        return strategy
+
+    mocker.patch(
+        "freqtrade.resolvers.StrategyResolver.load_strategy", side_effect=load_strategy_with_startup
+    )
+    load_data = mocker.spy(Backtesting, "load_bt_data")
+    mocker.patch("freqtrade.optimize.backtesting.Backtesting.load_prior_backtest")
+    mocker.patch(
+        "freqtrade.optimize.backtesting.Backtesting.backtest_one_strategy",
+        return_value=(datetime(2018, 1, 10, tzinfo=UTC), datetime(2018, 1, 11, tzinfo=UTC)),
+    )
+    mocker.patch("freqtrade.optimize.optimize_reports.generate_backtest_stats", return_value={})
+    snapshots = []
+    try:
+        client_delete(client, f"{BASE_URI}/backtest")
+        for startup_count in startup_counts:
+            rc = client_post(
+                client,
+                f"{BASE_URI}/backtest",
+                data={
+                    "strategy": CURRENT_TEST_STRATEGY,
+                    "timeframe": "5m",
+                    "timerange": "20180110-20180111",
+                    "enable_protections": False,
+                },
+            )
+            assert_response(rc)
+            assert ApiBG.jobs[ApiBG.bt["job_id"]]["status"] == "success"
+            assert ApiBG.bt["bt"].required_startup == startup_count
+            snapshots.append((ApiBG.bt["bt"], ApiBG.bt["data"], ApiBG.bt["timerange"].startts))
+
+        assert load_data.call_count == 2
+        assert snapshots[0][0] is not snapshots[1][0]
+        assert snapshots[0][1] is not snapshots[1][1]
+        assert snapshots[1][0] is snapshots[2][0]
+        assert snapshots[1][1] is snapshots[2][1]
+        assert snapshots[1][2] - snapshots[0][2] == (startup_counts[1] - startup_counts[0]) * 300
+        assert snapshots[1][2] == snapshots[2][2]
+    finally:
+        client_delete(client, f"{BASE_URI}/backtest")
         Backtesting.cleanup()
 
 
