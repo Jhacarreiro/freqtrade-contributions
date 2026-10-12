@@ -100,6 +100,20 @@ def test_fiat_convert_same_currencies():
     assert fiat_convert.get_price(crypto_symbol="USD", fiat_symbol="USD") == 1.0
 
 
+@pytest.mark.parametrize("first_direction", [("BTC", "USD"), ("USD", "BTC")])
+def test_fiat_convert_cached_inverse(mocker, first_direction):
+    find_price = mocker.patch(
+        "freqtrade.rpc.fiat_convert.CryptoToFiatConverter._find_price", return_value=50000.0
+    )
+    converter = CryptoToFiatConverter({})
+    rates = {("BTC", "USD"): 50000.0, ("USD", "BTC"): 1 / 50000.0}
+
+    for direction in (first_direction, first_direction[::-1], first_direction):
+        assert converter.get_price(*direction) == rates[direction]
+    assert converter._pair_price["btc/usd"] == 50000.0
+    assert find_price.call_count == 1
+
+
 def test_fiat_convert_two_FIAT():
     fiat_convert = CryptoToFiatConverter({})
 

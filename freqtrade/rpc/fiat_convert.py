@@ -139,11 +139,9 @@ class CryptoToFiatConverter(LoggingMixin, metaclass=SingletonMeta):
 
         if not price:
             price = self._find_price(crypto_symbol=crypto_symbol, fiat_symbol=fiat_symbol)
-            if inverse and price != 0.0:
-                price = 1 / price
             self._pair_price[symbol] = price
 
-        return price
+        return 1 / price if inverse and price != 0.0 else price
 
     def _is_supported_fiat(self, fiat: str) -> bool:
         """
