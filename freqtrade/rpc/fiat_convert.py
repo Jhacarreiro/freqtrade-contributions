@@ -64,7 +64,7 @@ class CryptoToFiatConverter(LoggingMixin, metaclass=SingletonMeta):
                     "Too many requests for CoinGecko API, backing off and trying again later."
                 )
                 # Set backoff timestamp to 60 seconds in the future
-                self._backoff = dt_ts() + 60
+                self._backoff = dt_ts() + 60_000
                 return
             # If the request is not a 429 error we want to raise the normal error
             logger.error(

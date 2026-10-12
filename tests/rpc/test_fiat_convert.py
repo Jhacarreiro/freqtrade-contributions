@@ -178,6 +178,24 @@ def test_fiat_multiple_coins(caplog):
     assert log_has("Found multiple mappings in CoinGecko for hnt.", caplog)
 
 
+def test_fiat_rate_limit_backoff_seconds(mocker):
+    clock = mocker.patch("freqtrade.rpc.fiat_convert.dt_ts", return_value=1000000)
+    coins = mocker.patch(
+        "freqtrade.rpc.fiat_convert.FtCoinGeckoApi.get_coins_list",
+        side_effect=RequestException("429 Too Many Requests"),
+    )
+    converter = CryptoToFiatConverter({})
+    converter._coinlistings = []
+
+    clock.return_value = 1059999
+    assert converter._get_gecko_id("btc") is None
+    assert coins.call_count == 1
+
+    clock.return_value = 1060000
+    assert converter._get_gecko_id("btc") is None
+    assert coins.call_count == 2
+
+
 def test_fiat_invalid_response(mocker, caplog):
     # Because CryptoToFiatConverter is a Singleton we reset the listings
     listmock = MagicMock(return_value=None)
