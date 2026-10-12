@@ -3211,6 +3211,7 @@ def test_api_background_jobs(botclient):
     assert rc.json()["detail"] == "Job not found."
 
     ApiBG.jobs[job_id]["is_running"] = False
+    ApiBG.jobs[job_id]["status"] = "success"
     rc = client_delete(client, f"{BASE_URI}/background/{job_id}")
     assert_response(rc, 200)
     response = rc.json()
@@ -3222,7 +3223,7 @@ def test_api_background_jobs(botclient):
         {
             job_id: {
                 "category": "pairlist",
-                "status": "ended",
+                "status": "success",
                 "is_running": False,
                 "result": None,
             },
@@ -3250,6 +3251,145 @@ def test_api_background_jobs(botclient):
     assert len(response) == 1
     # The not deleted job should still be there
     assert response[0]["job_id"] == "randomJob2"
+
+
+@pytest.fixture
+def reset_background_running_flags():
+    ApiBG.analysis_running = False
+    ApiBG.download_data_running = False
+    ApiBG.pairlist_running = False
+    yield
+    ApiBG.analysis_running = False
+    ApiBG.download_data_running = False
+    ApiBG.pairlist_running = False
+
+
+@pytest.mark.usefixtures("reset_background_running_flags")
+@pytest.mark.parametrize("delete_all", [False, True])
+@pytest.mark.parametrize("download_error", [False, True])
+def test_api_background_pending_job_lifecycle(botclient, mocker, delete_all, download_error):
+    ftbot, client = botclient
+    ftbot.config["runmode"] = RunMode.WEBSERVER
+    queued = []
+    mocker.patch(
+        "fastapi.BackgroundTasks.add_task",
+        side_effect=lambda func, *args, **kwargs: queued.append((func, args, kwargs)),
+    )
+
+    def download_data(*args, **kwargs):
+        job = ApiBG.jobs[job_id]
+        assert job["is_running"] is True
+        # A worker's flag also protects a job before its terminal status is published.
+        job["status"] = "success"
+        rc = client_delete(client, f"{BASE_URI}/background/{job_id}")
+        assert_response(rc, 400)
+        assert rc.json()["detail"] == "Job is still running."
+        if download_error:
+            raise OperationalException("Download error")
+
+    mocker.patch("freqtrade.data.history.history_utils.download_data", side_effect=download_data)
+    body = {"pairs": ["ETH/BTC"], "timeframes": ["5m"]}
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
+    job_id = rc.json()["job_id"]
+    assert ApiBG.download_data_running is True
+
+    rc = client_get(client, f"{BASE_URI}/background/{job_id}")
+    assert_response(rc)
+    assert rc.json()["status"] == "pending"
+    assert rc.json()["running"] is False
+    url = f"{BASE_URI}/background/{'clear' if delete_all else job_id}"
+    rc = client_delete(client, url)
+    if delete_all:
+        assert_response(rc)
+        assert [job["job_id"] for job in rc.json()] == [job_id]
+    else:
+        assert_response(rc, 400)
+        assert rc.json()["detail"] == "Job is not finished yet."
+    assert job_id in ApiBG.jobs
+
+    func, args, kwargs = queued.pop()
+    func(*args, **kwargs)
+    assert ApiBG.download_data_running is False
+    rc = client_get(client, f"{BASE_URI}/background/{job_id}")
+    assert_response(rc)
+    assert rc.json()["status"] == ("failed" if download_error else "success")
+    assert rc.json()["running"] is False
+    assert rc.json()["error"] == ("Download error" if download_error else None)
+
+    rc = client_delete(client, url)
+    assert_response(rc)
+    assert job_id not in ApiBG.jobs
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
+    assert len(queued) == 1
+
+
+@pytest.mark.usefixtures("reset_background_running_flags")
+@pytest.mark.parametrize(
+    "endpoint,body,running_flag",
+    [
+        ("download_data", {"pairs": ["ETH/BTC"], "timeframes": ["5m"]}, "download_data_running"),
+        (
+            "pairlists/evaluate",
+            {
+                "stake_currency": "BTC",
+                "pairlists": [{"method": "StaticPairList"}],
+                "blacklist": [],
+            },
+            "pairlist_running",
+        ),
+        (
+            "backtest",
+            {"strategy": CURRENT_TEST_STRATEGY, "enable_protections": False},
+            "analysis_running",
+        ),
+        ("lookahead_analysis", {"strategy": CURRENT_TEST_STRATEGY}, "analysis_running"),
+        ("recursive_analysis", {"strategy": CURRENT_TEST_STRATEGY}, "analysis_running"),
+    ],
+)
+def test_api_background_missing_pending_job(botclient, mocker, endpoint, body, running_flag):
+    ftbot, client = botclient
+    ftbot.config["runmode"] = RunMode.WEBSERVER
+    queued = []
+    mocker.patch(
+        "fastapi.BackgroundTasks.add_task",
+        side_effect=lambda func, *args, **kwargs: queued.append((func, args, kwargs)),
+    )
+    rc = client_post(client, f"{BASE_URI}/{endpoint}", body)
+    assert_response(rc)
+    assert getattr(ApiBG, running_flag) is True
+    assert len(ApiBG.jobs) == 1
+    ApiBG.jobs.clear()
+
+    func, args, kwargs = queued.pop()
+    func(*args, **kwargs)
+    assert getattr(ApiBG, running_flag) is False
+    rc = client_post(client, f"{BASE_URI}/{endpoint}", body)
+    assert_response(rc)
+    assert len(queued) == 1
+
+
+@pytest.mark.usefixtures("reset_background_running_flags")
+@pytest.mark.parametrize("download_error", [False, True])
+def test_api_background_missing_running_download(botclient, mocker, download_error):
+    ftbot, client = botclient
+    ftbot.config["runmode"] = RunMode.WEBSERVER
+
+    def download_data(*args, **kwargs):
+        assert ApiBG.download_data_running is True
+        ApiBG.jobs.clear()
+        if download_error:
+            raise OperationalException("Download error")
+
+    mocker.patch("freqtrade.data.history.history_utils.download_data", side_effect=download_data)
+    body = {"pairs": ["ETH/BTC"], "timeframes": ["5m"]}
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
+    assert ApiBG.jobs == {}
+    assert ApiBG.download_data_running is False
+    rc = client_post(client, f"{BASE_URI}/download_data", body)
+    assert_response(rc)
 
 
 def test_sysinfo(botclient):

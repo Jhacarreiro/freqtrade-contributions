@@ -41,11 +41,11 @@ def background_job(jobid: str):
 @router.delete(
     "/background/clear",
     response_model=list[BackgroundTaskStatus],
-    description="Delete all background jobs that are not running. Returns not deleted jobs.",
+    description="Delete all finished background jobs. Returns not deleted jobs.",
 )
 def background_job_delete_all():
     for jobid, job in list(ApiBG.jobs.items()):
-        if job["is_running"]:
+        if job["is_running"] or job["status"] not in ("success", "failed"):
             continue
         del ApiBG.jobs[jobid]
     return [_create_background_task_response(jobid, job) for jobid, job in ApiBG.jobs.items()]
@@ -58,6 +58,9 @@ def background_job_delete(jobid: str):
 
     if job["is_running"]:
         raise HTTPException(status_code=400, detail="Job is still running.")
+
+    if job["status"] not in ("success", "failed"):
+        raise HTTPException(status_code=400, detail="Job is not finished yet.")
 
     del ApiBG.jobs[jobid]
 

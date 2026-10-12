@@ -62,10 +62,12 @@ def __run_analysis_bg(
     :param analysis_name: The name of the analysis |
     :param run_analysis: The function to run the analysis.
     """
-    job = ApiBG.jobs[job_id]
-    job["is_running"] = True
-    asyncio.set_event_loop(asyncio.new_event_loop())
+    if not (job := ApiBG.jobs.get(job_id)):
+        ApiBG.analysis_running = False
+        return
     try:
+        job["is_running"] = True
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
         def ft_callback(task) -> None:
             job["progress_tasks"][str(task.id)] = {

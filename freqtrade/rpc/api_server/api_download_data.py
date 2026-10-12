@@ -21,15 +21,18 @@ router = APIRouter()
 
 
 def __run_download(job_id: str, config_loc: Config):
+    if not (job := ApiBG.jobs.get(job_id)):
+        ApiBG.download_data_running = False
+        return
     try:
-        ApiBG.jobs[job_id]["is_running"] = True
+        job["is_running"] = True
         from freqtrade.data.history.history_utils import download_data
 
         with FtNoDBContext():
             exchange = get_exchange(config_loc)
 
             def ft_callback(task) -> None:
-                ApiBG.jobs[job_id]["progress_tasks"][str(task.id)] = {
+                job["progress_tasks"][str(task.id)] = {
                     "progress": task.completed,
                     "total": task.total,
                     "description": task.description,
@@ -38,13 +41,13 @@ def __run_download(job_id: str, config_loc: Config):
             pt = get_progress_tracker(ft_callback=ft_callback)
 
             download_data(config_loc, exchange, progress_tracker=pt)
-            ApiBG.jobs[job_id]["status"] = "success"
+            job["status"] = "success"
     except (OperationalException, Exception) as e:
         logger.exception(e)
-        ApiBG.jobs[job_id]["error"] = str(e)
-        ApiBG.jobs[job_id]["status"] = "failed"
+        job["error"] = str(e)
+        job["status"] = "failed"
     finally:
-        ApiBG.jobs[job_id]["is_running"] = False
+        job["is_running"] = False
         ApiBG.download_data_running = False
 
 

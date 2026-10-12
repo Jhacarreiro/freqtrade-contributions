@@ -46,8 +46,11 @@ def list_pairlists(config=Depends(get_config)):
 
 
 def __run_pairlist(job_id: str, config_loc: Config):
+    if not (job := ApiBG.jobs.get(job_id)):
+        ApiBG.pairlist_running = False
+        return
     try:
-        ApiBG.jobs[job_id]["is_running"] = True
+        job["is_running"] = True
         from freqtrade.plugins.pairlistmanager import PairListManager
 
         with FtNoDBContext():
@@ -55,18 +58,18 @@ def __run_pairlist(job_id: str, config_loc: Config):
             config_loc["candle_type_def"] = exchange._config["candle_type_def"]
             pairlists = PairListManager(exchange, config_loc)
             pairlists.refresh_pairlist()
-            ApiBG.jobs[job_id]["result"] = {
+            job["result"] = {
                 "method": pairlists.name_list,
                 "length": len(pairlists.whitelist),
                 "whitelist": pairlists.whitelist,
             }
-            ApiBG.jobs[job_id]["status"] = "success"
+            job["status"] = "success"
     except (OperationalException, Exception) as e:
         logger.exception(e)
-        ApiBG.jobs[job_id]["error"] = str(e)
-        ApiBG.jobs[job_id]["status"] = "failed"
+        job["error"] = str(e)
+        job["status"] = "failed"
     finally:
-        ApiBG.jobs[job_id]["is_running"] = False
+        job["is_running"] = False
         ApiBG.pairlist_running = False
 
 

@@ -49,10 +49,12 @@ def __run_backtest_bg(btconfig: Config, job_id: str):
     from freqtrade.optimize.optimize_reports import generate_backtest_stats, store_backtest_results
     from freqtrade.resolvers import StrategyResolver
 
-    job = ApiBG.jobs[job_id]
-    job["is_running"] = True
-    asyncio.set_event_loop(asyncio.new_event_loop())
+    if not (job := ApiBG.jobs.get(job_id)):
+        ApiBG.analysis_running = False
+        return
     try:
+        job["is_running"] = True
+        asyncio.set_event_loop(asyncio.new_event_loop())
         # Reload strategy
         lastconfig = ApiBG.bt["last_config"]
         strat = StrategyResolver.load_strategy(btconfig)
